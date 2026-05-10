@@ -7,7 +7,7 @@
     <script src="https://cdnjs.cloudflare.com/ajax/libs/PapaParse/5.3.2/papaparse.min.js"></script>
     <style>
         body { font-family: 'Segoe UI', 'Malgun Gothic', sans-serif; background-color: #f4f5f8; padding: 30px; display: flex; justify-content: center; margin: 0; }
-        .dashboard-container { width: 100%; max-width: 1150px; background: #ffffff; border-radius: 8px; box-shadow: 0 4px 12px rgba(0,0,0,0.05); overflow: hidden; border: 1px solid #e1e4e8; padding: 20px; }
+        .dashboard-container { width: 100%; max-width: 1200px; background: #ffffff; border-radius: 8px; box-shadow: 0 4px 12px rgba(0,0,0,0.05); overflow: hidden; border: 1px solid #e1e4e8; padding: 20px; }
         
         .page { display: none; }
         .page.active { display: block; }
@@ -27,27 +27,24 @@
         .filter-box select { padding: 6px 12px; font-size: 13px; border: 1px solid #ddd; border-radius: 4px; color: #555; outline: none; cursor: pointer; }
 
         table { width: 100%; border-collapse: collapse; text-align: right; table-layout: fixed; }
-        th, td { padding: 16px 12px; border-bottom: 1px solid #f6f6f6; font-size: 13px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
-        thead th { background-color: #f8f9fa; color: #888; font-weight: 500; font-size: 11px; }
+        th, td { padding: 14px 12px; border-bottom: 1px solid #f6f6f6; font-size: 13px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+        thead th { background-color: #f8f9fa; color: #888; font-weight: 500; font-size: 12px; text-align: right; }
+        
         tfoot { background-color: #f1f3f5; font-weight: bold; }
         tfoot td { border-top: 2px solid #ddd; color: #111; font-size: 14px; }
         
-        /* 컬럼 비율 조정 */
-        th:nth-child(1), td:nth-child(1) { width: 40%; text-align: left; } 
-        th:nth-child(2), td:nth-child(2) { width: 18%; } 
-        th:nth-child(3), td:nth-child(3) { width: 12%; } 
-        th:nth-child(4), td:nth-child(4) { width: 12%; } 
-        th:nth-child(5), td:nth-child(5) { width: 18%; } 
-
         .product-cell { display: flex; align-items: center; font-weight: 600; color: #222; }
-        .bar-container { width: 80px; height: 12px; background-color: #edf2f7; border-radius: 3px; margin-right: 10px; overflow: hidden; display: inline-block; flex-shrink: 0; }
+        .bar-container { width: 70px; height: 12px; background-color: #edf2f7; border-radius: 3px; margin-right: 10px; overflow: hidden; display: inline-block; flex-shrink: 0; }
         .color-bar { height: 100%; border-radius: 3px; display: block; transition: width 0.4s ease-out; width: 0%; }
         
-        /* C열 데이터를 표시할 스타일 */
-        .sub-text { font-size: 11px; color: #888; font-weight: normal; margin-left: 5px; }
-
         .number-cell { color: #444; }
         .ratio-cell { color: #777; }
+        
+        /* 세로 병합 셀 스타일 (VIP 등 대분류용) */
+        .merged-cell { vertical-align: middle; text-align: center; border-right: 1px solid #e1e4e8; background-color: #fff; font-weight: bold; font-size: 14px; color: #333; }
+        /* 소계(total) 행 스타일 */
+        .total-row { background-color: #fafbfc; }
+
         #loading { text-align: center; padding: 40px; color: #666; font-size: 14px; display: none; }
     </style>
 </head>
@@ -73,15 +70,10 @@
             </div>
         </div>
         <div id="loading">데이터를 분석하는 중입니다...</div>
+        
         <table id="dataTable" style="display: none;">
             <thead>
-                <tr>
-                    <th>시술명 (C열 포함)</th>
-                    <th>금액</th>
-                    <th>횟수</th>
-                    <th>인원수</th>
-                    <th>점유율</th>
-                </tr>
+                <tr id="tableHead"></tr>
             </thead>
             <tbody id="tableBody"></tbody>
             <tfoot id="tableFoot"></tfoot>
@@ -92,12 +84,12 @@
 <script>
     const dataLinks = {
         'visit': '내원경로_CSV_링크',
-        'cosmetic': 'https://docs.google.com/spreadsheets/d/e/2PACX-1vT-fASLFIszgF2b6CxMhsirC34J00Qxv9GNG8BH-OSAcJ4WLKrYn9UHivxrH9YhNXKJcjWK8jAeiCmU/pub?output=csv',
-        'procedure': 'https://docs.google.com/spreadsheets/d/e/2PACX-1vRrQAAWDc3ANRCVxqwzSMAh2sOK8PLmbaoLx-LAdCnyQDGv6_BA0B-SNnb2RI-rW551KHO3eA6rYQJx/pub?output=csv'
+        'cosmetic': 'https://docs.google.com/spreadsheets/d/e/2PACX-1vRrQAAWDc3ANRCVxqwzSMAh2sOK8PLmbaoLx-LAdCnyQDGv6_BA0B-SNnb2RI-rW551KHO3eA6rYQJx/pub?output=csv',
+        'procedure': 'https://docs.google.com/spreadsheets/d/e/2PACX-1vT-fASLFIszgF2b6CxMhsirC34J00Qxv9GNG8BH-OSAcJ4WLKrYn9UHivxrH9YhNXKJcjWK8jAeiCmU/pub?output=csv'
     };
 
     const TARGET_COLS = { amount: '금액', count: '횟수', buyers: '인원수' };
-    const colors = ['#4A6CF7', '#F59A23', '#00B578', '#E63F3F', '#7C4DFF', '#E83A82', '#17A2B8', '#8BC34A', '#FF7043'];
+    const colors = ['#4A6CF7', '#F59A23', '#00B578', '#E63F3F', '#7C4DFF', '#E83A82', '#17A2B8', '#8BC34A', '#FF7043', '#9E9E9E'];
     const formatNumber = (num) => new Intl.NumberFormat('ko-KR').format(num);
 
     let rawDataRows = [];
@@ -110,18 +102,36 @@
         document.getElementById('data-page').classList.add('active');
         document.getElementById('dataTable').style.display = 'none';
         document.getElementById('loading').style.display = 'block';
-        document.getElementById('loading').innerHTML = '데이터 분석 중...';
         document.getElementById('monthSelect').innerHTML = ''; 
+
+        // 메뉴에 따른 동적 헤더 설정
+        const thead = document.getElementById('tableHead');
+        if (currentType === 'procedure') {
+            thead.innerHTML = `
+                <th style="width: 20%; text-align: center;">대분류(B열)</th>
+                <th style="width: 25%; text-align: left;">상세분류(C열)</th>
+                <th style="width: 15%;">금액</th>
+                <th style="width: 12%;">횟수</th>
+                <th style="width: 13%;">인원수</th>
+                <th style="width: 15%;">점유율</th>
+            `;
+        } else {
+            thead.innerHTML = `
+                <th style="width: 40%; text-align: left;">항목명 (그래프)</th>
+                <th style="width: 18%;">금액</th>
+                <th style="width: 12%;">횟수</th>
+                <th style="width: 12%;">인원수</th>
+                <th style="width: 18%;">점유율</th>
+            `;
+        }
 
         Papa.parse(dataLinks[type], {
             download: true,
             header: false,
             complete: function(results) {
                 const rows = results.data;
-                if (rows.length < 9) {
-                    document.getElementById('loading').innerHTML = '<span style="color:red;">데이터 구조 오류</span>';
-                    return;
-                }
+                if (rows.length < 9) return;
+                
                 const row8 = rows[7], row9 = rows[8];
                 rawDataRows = rows.slice(9); 
                 monthColumnMap = {}; 
@@ -156,17 +166,26 @@
         const idxCount = colIndices[TARGET_COLS.count];
         const idxBuyers = colIndices[TARGET_COLS.buyers];
 
-        const groupedData = {};
-        let totalAmount = 0, totalCount = 0, totalBuyers = 0;
+        if (currentType === 'procedure') {
+            renderProcedureTable(idxAmount, idxCount, idxBuyers);
+        } else {
+            renderStandardTable(idxAmount, idxCount, idxBuyers);
+        }
+    }
 
+    // ========================================================
+    // ★ 3번째 대시보드 전용 (시술별 피벗 그룹화 렌더링) ★
+    // ========================================================
+    function renderProcedureTable(idxAmount, idxCount, idxBuyers) {
+        const groupedData = {};
+        let grandAmount = 0, grandCount = 0, grandBuyers = 0;
+
+        // 1. 대분류(B) -> 소분류(C) 그룹화 데이터 생성
         rawDataRows.forEach(row => {
-            if (!row || row.length < 3) return; 
-            
-            // 시술별 통계일 경우 B열(index 1) 기준 Distinct, 아니면 기존 C열(index 2) 기준
-            const mainKey = (currentType === 'procedure') ? (row[1] ? row[1].trim() : "") : (row[2] ? row[2].trim() : "");
-            const subInfo = (currentType === 'procedure' && row[2]) ? row[2].trim() : "";
-            
-            if (mainKey === "") return; 
+            if (!row || row.length < 3) return;
+            const mainKey = row[1] ? row[1].trim() : ""; // B열
+            const subKey = row[2] ? row[2].trim() : "";  // C열
+            if (mainKey === "") return;
 
             const amount = Number((row[idxAmount] || '0').replace(/[^0-9.-]+/g, ""));
             const count = Number((row[idxCount] || '0').replace(/[^0-9.-]+/g, ""));
@@ -174,42 +193,141 @@
 
             if (amount === 0 && count === 0) return;
 
-            if (!groupedData[mainKey]) {
-                groupedData[mainKey] = { amount: 0, count: 0, buyers: 0, sub: subInfo };
-            }
+            if (!groupedData[mainKey]) groupedData[mainKey] = { amount: 0, count: 0, buyers: 0, subs: {} };
+            if (!groupedData[mainKey].subs[subKey]) groupedData[mainKey].subs[subKey] = { amount: 0, count: 0, buyers: 0 };
+
+            // 소계 및 총계 누적
             groupedData[mainKey].amount += amount;
             groupedData[mainKey].count += count;
             groupedData[mainKey].buyers += buyers;
-            totalAmount += amount;
-            totalCount += count;
-            totalBuyers += buyers;
+            
+            groupedData[mainKey].subs[subKey].amount += amount;
+            groupedData[mainKey].subs[subKey].count += count;
+            groupedData[mainKey].subs[subKey].buyers += buyers;
+
+            grandAmount += amount;
+            grandCount += count;
+            grandBuyers += buyers;
         });
 
-        const sortedItems = Object.entries(groupedData)
-            .map(([key, stats]) => ({ key, ...stats }))
-            .sort((a, b) => b.amount - a.amount);
-
+        // 대분류 매출액 순 정렬
+        const sortedMain = Object.entries(groupedData).sort((a, b) => b[1].amount - a[1].amount);
         const tbody = document.getElementById('tableBody');
         tbody.innerHTML = '';
 
-        sortedItems.forEach((item, index) => {
-            const ratioNum = totalAmount === 0 ? 0 : (item.amount / totalAmount) * 100;
+        // 2. HTML 행(Row) 생성
+        sortedMain.forEach(([mainKey, mainData], mIdx) => {
+            // 소분류 매출액 순 정렬
+            const sortedSubs = Object.entries(mainData.subs).sort((a, b) => b[1].amount - a[1].amount);
+            const rowCount = sortedSubs.length + 1; // total 행 포함한 전체 행 개수 (rowspan 용도)
+
+            // --- A. 대분류의 [total] 행 그리기 ---
+            const trTotal = document.createElement('tr');
+            trTotal.className = 'total-row'; // 살짝 배경색 적용
+            
+            // 핵심: rowspan 적용으로 세로 병합
+            const tdMain = document.createElement('td');
+            tdMain.rowSpan = rowCount;
+            tdMain.className = 'merged-cell';
+            tdMain.innerText = mainKey;
+            trTotal.appendChild(tdMain);
+
+            const ratioMain = grandAmount === 0 ? 0 : (mainData.amount / grandAmount) * 100;
+            
+            trTotal.innerHTML += `
+                <td style="font-weight: bold; text-align: left; color: #333;">total</td>
+                <td class="number-cell" style="font-weight: bold;">${formatNumber(mainData.amount)}</td>
+                <td class="number-cell" style="font-weight: bold;">${formatNumber(mainData.count)}</td>
+                <td class="number-cell" style="font-weight: bold;">${formatNumber(mainData.buyers)}</td>
+                <td class="ratio-cell" style="font-weight: bold;">${ratioMain.toFixed(2)}%</td>
+            `;
+            tbody.appendChild(trTotal);
+
+            // --- B. 하위 소분류(C열) 항목 그리기 ---
+            sortedSubs.forEach(([subKey, subData], sIdx) => {
+                const ratioSub = grandAmount === 0 ? 0 : (subData.amount / grandAmount) * 100;
+                const color = colors[(mIdx + sIdx) % colors.length]; // 항목별 색상 지정
+
+                const trSub = document.createElement('tr');
+                trSub.innerHTML = `
+                    <td style="text-align: left;">
+                        <div class="product-cell">
+                            <div class="bar-container">
+                                <span class="color-bar" style="background-color: ${color}; width: ${ratioSub.toFixed(2)}%;"></span>
+                            </div>
+                            <span class="product-name">${subKey || '기본'}</span>
+                        </div>
+                    </td>
+                    <td class="number-cell">${formatNumber(subData.amount)}</td>
+                    <td class="number-cell">${formatNumber(subData.count)}</td>
+                    <td class="number-cell">${formatNumber(subData.buyers)}</td>
+                    <td class="ratio-cell">${ratioSub.toFixed(2)}%</td>
+                `;
+                tbody.appendChild(trSub);
+            });
+        });
+
+        // 3. 하단 총 합계
+        document.getElementById('tableFoot').innerHTML = `
+            <tr>
+                <td colspan="2" style="text-align: center;">총 합계</td>
+                <td>${formatNumber(grandAmount)}</td>
+                <td>${formatNumber(grandCount)}</td>
+                <td>${formatNumber(grandBuyers)}</td>
+                <td class="ratio-cell">100.00%</td>
+            </tr>
+        `;
+    }
+
+    // ========================================================
+    // ★ 1, 2번째 대시보드 전용 (기존 단일 항목 렌더링) ★
+    // ========================================================
+    function renderStandardTable(idxAmount, idxCount, idxBuyers) {
+        const groupedData = {};
+        let grandAmount = 0, grandCount = 0, grandBuyers = 0;
+
+        rawDataRows.forEach(row => {
+            if (!row || row.length < 3) return; 
+            const key = row[2] ? row[2].trim() : ""; 
+            if (key === "") return; 
+
+            const amount = Number((row[idxAmount] || '0').replace(/[^0-9.-]+/g, ""));
+            const count = Number((row[idxCount] || '0').replace(/[^0-9.-]+/g, ""));
+            const buyers = Number((row[idxBuyers] || '0').replace(/[^0-9.-]+/g, ""));
+
+            if (amount === 0 && count === 0) return;
+            if (!groupedData[key]) groupedData[key] = { amount: 0, count: 0, buyers: 0 };
+            
+            groupedData[key].amount += amount;
+            groupedData[key].count += count;
+            groupedData[key].buyers += buyers;
+            
+            grandAmount += amount;
+            grandCount += count;
+            grandBuyers += buyers;
+        });
+
+        const sortedItems = Object.entries(groupedData).sort((a, b) => b[1].amount - a[1].amount);
+        const tbody = document.getElementById('tableBody');
+        tbody.innerHTML = '';
+
+        sortedItems.forEach(([key, item], index) => {
+            const ratioNum = grandAmount === 0 ? 0 : (item.amount / grandAmount) * 100;
             const color = colors[index % colors.length];
 
             const tr = document.createElement('tr');
             tr.innerHTML = `
-                <td>
+                <td style="text-align: left;">
                     <div class="product-cell">
                         <div class="bar-container">
                             <span class="color-bar" style="background-color: ${color}; width: ${ratioNum.toFixed(2)}%;"></span>
                         </div>
-                        <span class="product-name">${item.key}</span>
-                        ${item.sub ? `<span class="sub-text">(${item.sub})</span>` : ''}
+                        <span class="product-name">${key}</span>
                     </div>
                 </td>
                 <td class="number-cell">${formatNumber(item.amount)}</td>
-                <td class="number-cell">${formatNumber(item.count)}회</td>
-                <td class="number-cell">${formatNumber(item.buyers)}명</td>
+                <td class="number-cell">${formatNumber(item.count)}</td>
+                <td class="number-cell">${formatNumber(item.buyers)}</td>
                 <td class="ratio-cell">${ratioNum.toFixed(2)}%</td>
             `;
             tbody.appendChild(tr);
@@ -217,10 +335,10 @@
 
         document.getElementById('tableFoot').innerHTML = `
             <tr>
-                <td>총 합계</td>
-                <td>${formatNumber(totalAmount)}</td>
-                <td>${formatNumber(totalCount)}회</td>
-                <td>${formatNumber(totalBuyers)}명</td>
+                <td style="text-align: center;">총 합계</td>
+                <td>${formatNumber(grandAmount)}</td>
+                <td>${formatNumber(grandCount)}</td>
+                <td>${formatNumber(grandBuyers)}</td>
                 <td class="ratio-cell">100.00%</td>
             </tr>
         `;
