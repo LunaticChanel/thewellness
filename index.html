@@ -6,15 +6,15 @@
     <title>통합 통계 대시보드</title>
     <script src="https://cdnjs.cloudflare.com/ajax/libs/PapaParse/5.3.2/papaparse.min.js"></script>
     <style>
+        /* 기본 스타일 정의 */
         body { font-family: 'Segoe UI', 'Malgun Gothic', sans-serif; background-color: #f4f5f8; padding: 30px; display: flex; justify-content: center; margin: 0; }
-        
         .dashboard-container { width: 100%; max-width: 1100px; background: #ffffff; border-radius: 8px; box-shadow: 0 4px 12px rgba(0,0,0,0.05); overflow: hidden; border: 1px solid #e1e4e8; padding: 20px; }
         
         /* 화면 전환용 클래스 */
         .page { display: none; }
         .page.active { display: block; }
 
-        /* 첫 페이지 메뉴 버튼 스타일 */
+        /* 메뉴 페이지 스타일 */
         h1 { text-align: center; color: #333; margin-bottom: 10px; }
         .menu-desc { text-align: center; color: #666; margin-bottom: 30px; }
         .btn-group { display: flex; flex-direction: column; gap: 15px; max-width: 500px; margin: 0 auto; }
@@ -25,20 +25,49 @@
         .btn:hover { opacity: 0.8; transform: translateY(-2px); }
         .btn-back { background-color: #607D8B; padding: 10px 20px; font-size: 14px; margin-bottom: 20px; color: white; border: none; border-radius: 5px; cursor: pointer; }
 
-        /* 두 번째 페이지(데이터 표) 스타일 */
+        /* 데이터 페이지 스타일 */
         .header { display: flex; justify-content: space-between; align-items: center; padding-bottom: 20px; border-bottom: 1px solid #f0f0f0; margin-bottom: 20px; }
         .header h2 { margin: 0; font-size: 18px; color: #111; font-weight: bold; }
         .filter-box select { padding: 6px 12px; font-size: 13px; border: 1px solid #ddd; border-radius: 4px; color: #555; outline: none; cursor: pointer; }
 
-        table { width: 100%; border-collapse: collapse; text-align: right; }
-        th, td { padding: 16px 15px; border-bottom: 1px solid #f6f6f6; font-size: 13px; }
+        /* 테이블 기본 스타일 */
+        table { width: 100%; border-collapse: collapse; text-align: right; table-layout: fixed; /* 레이아웃 고정 */ }
+        th, td { padding: 16px 15px; border-bottom: 1px solid #f6f6f6; font-size: 13px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
         thead th { background-color: #f8f9fa; color: #888; font-weight: 500; font-size: 12px; }
         tfoot { background-color: #f1f3f5; font-weight: bold; }
         tfoot td { border-top: 2px solid #ddd; color: #111; font-size: 14px; }
         
-        th:first-child, td:first-child { text-align: left; }
+        /* 컬럼별 너비 지정 */
+        th:nth-child(1), td:nth-child(1) { width: 35%; text-align: left; } /* 항목명(그래프 포함) */
+        th:nth-child(2), td:nth-child(2) { width: 20%; } /* 금액 */
+        th:nth-child(3), td:nth-child(3) { width: 15%; } /* 횟수 */
+        th:nth-child(4), td:nth-child(4) { width: 15%; } /* 인원수 */
+        th:nth-child(5), td:nth-child(5) { width: 15%; } /* 점유율텍스트 */
+
+        /* ★ 항목명 + 미니 그래프 셀 스타일 */
         .product-cell { display: flex; align-items: center; font-weight: 600; color: #222; }
-        .color-bar { width: 16px; height: 3px; border-radius: 2px; margin-right: 12px; display: inline-block; }
+        
+        /* 그래프가 그려질 배경색 공간 */
+        .bar-container {
+            width: 100px; /* 그래프 최대 너비 고정 */
+            height: 14px;
+            background-color: #edf2f7; /* 배경색 (회색) */
+            border-radius: 3px;
+            margin-right: 12px;
+            overflow: hidden; /* 내부 바가 튀어나가지 않게 */
+            display: inline-block;
+            flex-shrink: 0; /* 크기 줄어듦 방지 */
+        }
+
+        /* ★ 실제 데이터 비중을 나타내는 유색 바 (JS에서 너비 조절) */
+        .color-bar {
+            height: 100%;
+            border-radius: 3px;
+            display: block;
+            transition: width 0.4s ease-out; /* 애니메이션 효과 */
+            width: 0%; /* 초기값 */
+        }
+
         .number-cell { color: #555; }
         .ratio-cell { color: #888; }
         
@@ -74,7 +103,7 @@
         <table id="dataTable" style="display: none;">
             <thead>
                 <tr>
-                    <th>항목명</th>
+                    <th>항목명 (점유율 그래프)</th>
                     <th>금액(매출액)</th>
                     <th>횟수</th>
                     <th>인원수</th>
@@ -90,65 +119,56 @@
 
 <script>
     // -------------------------------------------------------------
-    // ★ 설정 1: 각 버튼을 눌렀을 때 불러올 구글 시트 '웹에 게시(CSV)' 링크
+    // ★ 설정: 링크 주소 수정 (끝이 output=csv여야 함)
     // -------------------------------------------------------------
     const dataLinks = {
-        'visit': '여기에_내원경로_CSV링크_입력',      // 예: 내원경로 시트 링크
-        'cosmetic': 'https://docs.google.com/spreadsheets/d/e/2PACX-1vT-fASLFIszgF2b6CxMhsirC34J00Qxv9GNG8BH-OSAcJ4WLKrYn9UHivxrH9YhNXKJcjWK8jAeiCmU/pub?output=csv',    // 예: 화장품 시트 링크
-        'procedure': '여기에_시술별_CSV링크_입력' //
+        'visit': '여기에_내원경로_게시_링크(output=csv)',      
+        'cosmetic': '여기에_화장품_게시_링크(output=csv)',    
+        'procedure': 'https://docs.google.com/spreadsheets/d/1VUJodqEbJ3NTP1ERTJRFLwaCzCTlzIG_VdwMXYHc59A/pub?output=csv' // 테스트 시술별 링크
     };
 
-    const pageTitles = {
-        'visit': '내원경로 상세 통계',
-        'cosmetic': '항목별 화장품 상세 통계',
-        'procedure': '시술별 상세 통계'
-    };
-
-    // ★ 설정 2: 구글 시트 9행에 적힌 컬럼명
+    const pageTitles = { 'visit': '내원경로 상세', 'cosmetic': '화장품 상세', 'procedure': '시술별 상세' };
     const TARGET_COLS = { amount: '금액', count: '횟수', buyers: '인원수' };
-    const colors = ['#4A6CF7', '#F59A23', '#00B578', '#E63F3F', '#7C4DFF', '#E83A82', '#17A2B8', '#8BC34A', '#FF7043', '#9E9E9E', '#607D8B'];
+    
+    // 그래프 색상 팔레트
+    const colors = ['#4A6CF7', '#F59A23', '#00B578', '#E63F3F', '#7C4DFF', '#E83A82', '#17A2B8', '#8BC34A', '#FF7043'];
     const formatNumber = (num) => new Intl.NumberFormat('ko-KR').format(num);
 
     let rawDataRows = [];
     let monthColumnMap = {}; 
 
-    // 화면 전환 및 데이터 로드 시작
+    // 화면 전환 및 데이터 로드
     function loadData(type) {
-        // 1. 화면 전환
         document.getElementById('selection-page').classList.remove('active');
         document.getElementById('data-page').classList.add('active');
         
-        // 2. 초기화 및 로딩 표시
         document.getElementById('page-title').innerText = pageTitles[type];
         document.getElementById('dataTable').style.display = 'none';
         document.getElementById('loading').style.display = 'block';
         document.getElementById('loading').innerHTML = '데이터를 분석하는 중입니다...';
-        document.getElementById('monthSelect').innerHTML = ''; // 기존 월 목록 초기화
+        document.getElementById('monthSelect').innerHTML = ''; 
 
         const targetUrl = dataLinks[type];
 
-        // 3. PapaParse로 해당 링크 데이터 불러오기
         Papa.parse(targetUrl, {
             download: true,
             header: false,
             error: function(err) {
-                document.getElementById('loading').innerHTML = `<span style="color:red;">데이터를 불러오지 못했습니다.<br>원인: ${err.message}<br>'웹에 게시' 링크인지 확인해주세요.</span>`;
+                document.getElementById('loading').innerHTML = `<span style="color:red;">데이터 에러.<br>원인: 로컬실행(CORS) 또는 게시링크 오류.</span>`;
             },
             complete: function(results) {
                 const rows = results.data;
                 if (rows.length < 9) {
-                    document.getElementById('loading').innerHTML = `<span style="color:red;">오류: 시트 데이터가 9줄 미만입니다. (현재: ${rows.length}줄)</span>`;
+                    document.getElementById('loading').innerHTML = `<span style="color:red;">오류: 데이터가 부족합니다.</span>`;
                     return;
                 }
-
-                const row8 = rows[7]; // 8행 (월)
-                const row9 = rows[8]; // 9행 (세부 컬럼명)
+                // ... (8,9행 분석 로직은 동일, 생략)
+                const row8 = rows[7]; 
+                const row9 = rows[8]; 
                 rawDataRows = rows.slice(9); 
                 monthColumnMap = {}; 
-
                 let currentMonth = "";
                 let foundTargetCol = false;
-                
                 for (let i = 3; i < row8.length; i++) { 
                     if (row8[i] && row8[i].trim() !== "") {
                         currentMonth = row8[i].trim();
@@ -160,37 +180,27 @@
                         if(colName === TARGET_COLS.amount) foundTargetCol = true;
                     }
                 }
-
                 if (!foundTargetCol) {
-                     document.getElementById('loading').innerHTML = `<span style="color:red;">오류: 9행에서 '${TARGET_COLS.amount}' 컬럼을 찾지 못했습니다. 데이터 구조를 확인해주세요.</span>`;
+                     document.getElementById('loading').innerHTML = `<span style="color:red;">오류: '${TARGET_COLS.amount}' 컬럼 못찾음.</span>`;
                      return;
                 }
-
-                // 월별 셀렉트 박스 채우기
                 const monthSelect = document.getElementById('monthSelect');
                 Object.keys(monthColumnMap).forEach(month => {
                     const option = document.createElement('option');
-                    option.value = month;
-                    option.textContent = month;
-                    monthSelect.appendChild(option);
+                    option.value = month; option.textContent = month; monthSelect.appendChild(option);
                 });
-
                 document.getElementById('loading').style.display = 'none';
                 document.getElementById('dataTable').style.display = 'table';
-                
-                renderTable(); // 표 그리기
+                renderTable(); 
             }
         });
     }
 
-    // 표 렌더링 함수
+    // ★ 표 렌더링 (미니 그래프 로직 포함)
     function renderTable() {
         const selectedMonth = document.getElementById('monthSelect').value;
         const colIndices = monthColumnMap[selectedMonth];
-
-        if (!colIndices || colIndices[TARGET_COLS.amount] === undefined) {
-            alert(`선택한 월에 데이터가 없습니다.`); return;
-        }
+        if (!colIndices) return;
 
         const idxAmount = colIndices[TARGET_COLS.amount];
         const idxCount = colIndices[TARGET_COLS.count];
@@ -201,7 +211,7 @@
 
         rawDataRows.forEach(row => {
             if (!row || row.length < 3) return; 
-            const code = row[2] ? row[2].trim() : ""; // C열 기준 (항목명/시술코드)
+            const code = row[2] ? row[2].trim() : ""; // C열 기준
             if (code === "") return; 
 
             const amount = Number((row[idxAmount] || '0').replace(/[^0-9.-]+/g, ""));
@@ -209,13 +219,11 @@
             const buyers = Number((row[idxBuyers] || '0').replace(/[^0-9.-]+/g, ""));
 
             if (amount === 0 && count === 0) return;
-
             if (!groupedData[code]) groupedData[code] = { amount: 0, count: 0, buyers: 0 };
             
             groupedData[code].amount += amount;
             groupedData[code].count += count;
             groupedData[code].buyers += buyers;
-
             totalAmount += amount;
             totalCount += count;
             totalBuyers += buyers;
@@ -229,25 +237,30 @@
         tbody.innerHTML = '';
 
         sortedItems.forEach((item, index) => {
-            const ratio = totalAmount === 0 ? 0 : ((item.amount / totalAmount) * 100).toFixed(2);
+            // 점유율 계산 (0~100)
+            const ratioNum = totalAmount === 0 ? 0 : (item.amount / totalAmount) * 100;
+            const ratioStr = ratioNum.toFixed(2);
             const color = colors[index % colors.length];
 
             const tr = document.createElement('tr');
             tr.innerHTML = `
                 <td>
                     <div class="product-cell">
-                        <span class="color-bar" style="background-color: ${color};"></span>
-                        ${item.code}
+                        <div class="bar-container">
+                            <span class="color-bar" style="background-color: ${color}; width: ${ratioStr}%;"></span>
+                        </div>
+                        <span class="product-name" title="${item.code}">${item.code}</span>
                     </div>
                 </td>
                 <td class="number-cell">${formatNumber(item.amount)}</td>
                 <td class="number-cell">${formatNumber(item.count)}회</td>
                 <td class="number-cell">${formatNumber(item.buyers)}명</td>
-                <td class="ratio-cell">${ratio}%</td>
+                <td class="ratio-cell">${ratioStr}%</td>
             `;
             tbody.appendChild(tr);
         });
 
+        // 합계란은 그래프 없이 텍스트만
         document.getElementById('tableFoot').innerHTML = `
             <tr>
                 <td>총 합계</td>
@@ -259,7 +272,6 @@
         `;
     }
 
-    // 뒤로 가기 (메뉴로 복귀)
     function goBack() {
         document.getElementById('data-page').classList.remove('active');
         document.getElementById('selection-page').classList.add('active');
