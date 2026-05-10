@@ -1,0 +1,270 @@
+<!DOCTYPE html>
+<html lang="ko">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>통합 통계 대시보드</title>
+    <script src="https://cdnjs.cloudflare.com/ajax/libs/PapaParse/5.3.2/papaparse.min.js"></script>
+    <style>
+        body { font-family: 'Segoe UI', 'Malgun Gothic', sans-serif; background-color: #f4f5f8; padding: 30px; display: flex; justify-content: center; margin: 0; }
+        
+        .dashboard-container { width: 100%; max-width: 1100px; background: #ffffff; border-radius: 8px; box-shadow: 0 4px 12px rgba(0,0,0,0.05); overflow: hidden; border: 1px solid #e1e4e8; padding: 20px; }
+        
+        /* 화면 전환용 클래스 */
+        .page { display: none; }
+        .page.active { display: block; }
+
+        /* 첫 페이지 메뉴 버튼 스타일 */
+        h1 { text-align: center; color: #333; margin-bottom: 10px; }
+        .menu-desc { text-align: center; color: #666; margin-bottom: 30px; }
+        .btn-group { display: flex; flex-direction: column; gap: 15px; max-width: 500px; margin: 0 auto; }
+        .btn { padding: 15px; font-size: 18px; border: none; border-radius: 8px; cursor: pointer; transition: 0.3s; color: white; font-weight: bold; }
+        .btn-visit { background-color: #4CAF50; }
+        .btn-cosmetic { background-color: #2196F3; }
+        .btn-procedure { background-color: #9C27B0; }
+        .btn:hover { opacity: 0.8; transform: translateY(-2px); }
+        .btn-back { background-color: #607D8B; padding: 10px 20px; font-size: 14px; margin-bottom: 20px; color: white; border: none; border-radius: 5px; cursor: pointer; }
+
+        /* 두 번째 페이지(데이터 표) 스타일 */
+        .header { display: flex; justify-content: space-between; align-items: center; padding-bottom: 20px; border-bottom: 1px solid #f0f0f0; margin-bottom: 20px; }
+        .header h2 { margin: 0; font-size: 18px; color: #111; font-weight: bold; }
+        .filter-box select { padding: 6px 12px; font-size: 13px; border: 1px solid #ddd; border-radius: 4px; color: #555; outline: none; cursor: pointer; }
+
+        table { width: 100%; border-collapse: collapse; text-align: right; }
+        th, td { padding: 16px 15px; border-bottom: 1px solid #f6f6f6; font-size: 13px; }
+        thead th { background-color: #f8f9fa; color: #888; font-weight: 500; font-size: 12px; }
+        tfoot { background-color: #f1f3f5; font-weight: bold; }
+        tfoot td { border-top: 2px solid #ddd; color: #111; font-size: 14px; }
+        
+        th:first-child, td:first-child { text-align: left; }
+        .product-cell { display: flex; align-items: center; font-weight: 600; color: #222; }
+        .color-bar { width: 16px; height: 3px; border-radius: 2px; margin-right: 12px; display: inline-block; }
+        .number-cell { color: #555; }
+        .ratio-cell { color: #888; }
+        
+        #loading { text-align: center; padding: 40px; color: #666; font-size: 14px; display: none; }
+    </style>
+</head>
+<body>
+
+<div class="dashboard-container">
+    
+    <div id="selection-page" class="page active">
+        <h1>📊 통합 통계 대시보드</h1>
+        <p class="menu-desc">조회하실 항목을 선택해 주세요.</p>
+        <div class="btn-group">
+            <button class="btn btn-visit" onclick="loadData('visit')">내원경로 통계</button>
+            <button class="btn btn-cosmetic" onclick="loadData('cosmetic')">항목별 화장품 통계</button>
+            <button class="btn btn-procedure" onclick="loadData('procedure')">시술별 통계</button>
+        </div>
+    </div>
+
+    <div id="data-page" class="page">
+        <button class="btn-back" onclick="goBack()">🔙 메뉴로 돌아가기</button>
+        
+        <div class="header">
+            <h2 id="page-title">데이터 상세</h2>
+            <div class="filter-box">
+                <select id="monthSelect" onchange="renderTable()"></select>
+            </div>
+        </div>
+
+        <div id="loading">데이터를 분석하는 중입니다...</div>
+
+        <table id="dataTable" style="display: none;">
+            <thead>
+                <tr>
+                    <th>항목명</th>
+                    <th>금액(매출액)</th>
+                    <th>횟수</th>
+                    <th>인원수</th>
+                    <th>점유율</th>
+                </tr>
+            </thead>
+            <tbody id="tableBody"></tbody>
+            <tfoot id="tableFoot"></tfoot>
+        </table>
+    </div>
+
+</div>
+
+<script>
+    // -------------------------------------------------------------
+    // ★ 설정 1: 각 버튼을 눌렀을 때 불러올 구글 시트 '웹에 게시(CSV)' 링크
+    // -------------------------------------------------------------
+    const dataLinks = {
+        'visit': '여기에_내원경로_CSV링크_입력',      // 예: 내원경로 시트 링크
+        'cosmetic': 'https://docs.google.com/spreadsheets/d/e/2PACX-1vT-fASLFIszgF2b6CxMhsirC34J00Qxv9GNG8BH-OSAcJ4WLKrYn9UHivxrH9YhNXKJcjWK8jAeiCmU/pub?output=csv',    // 예: 화장품 시트 링크
+        'procedure': '여기에_시술별_CSV링크_입력' //
+    };
+
+    const pageTitles = {
+        'visit': '내원경로 상세 통계',
+        'cosmetic': '항목별 화장품 상세 통계',
+        'procedure': '시술별 상세 통계'
+    };
+
+    // ★ 설정 2: 구글 시트 9행에 적힌 컬럼명
+    const TARGET_COLS = { amount: '금액', count: '횟수', buyers: '인원수' };
+    const colors = ['#4A6CF7', '#F59A23', '#00B578', '#E63F3F', '#7C4DFF', '#E83A82', '#17A2B8', '#8BC34A', '#FF7043', '#9E9E9E', '#607D8B'];
+    const formatNumber = (num) => new Intl.NumberFormat('ko-KR').format(num);
+
+    let rawDataRows = [];
+    let monthColumnMap = {}; 
+
+    // 화면 전환 및 데이터 로드 시작
+    function loadData(type) {
+        // 1. 화면 전환
+        document.getElementById('selection-page').classList.remove('active');
+        document.getElementById('data-page').classList.add('active');
+        
+        // 2. 초기화 및 로딩 표시
+        document.getElementById('page-title').innerText = pageTitles[type];
+        document.getElementById('dataTable').style.display = 'none';
+        document.getElementById('loading').style.display = 'block';
+        document.getElementById('loading').innerHTML = '데이터를 분석하는 중입니다...';
+        document.getElementById('monthSelect').innerHTML = ''; // 기존 월 목록 초기화
+
+        const targetUrl = dataLinks[type];
+
+        // 3. PapaParse로 해당 링크 데이터 불러오기
+        Papa.parse(targetUrl, {
+            download: true,
+            header: false,
+            error: function(err) {
+                document.getElementById('loading').innerHTML = `<span style="color:red;">데이터를 불러오지 못했습니다.<br>원인: ${err.message}<br>'웹에 게시' 링크인지 확인해주세요.</span>`;
+            },
+            complete: function(results) {
+                const rows = results.data;
+                if (rows.length < 9) {
+                    document.getElementById('loading').innerHTML = `<span style="color:red;">오류: 시트 데이터가 9줄 미만입니다. (현재: ${rows.length}줄)</span>`;
+                    return;
+                }
+
+                const row8 = rows[7]; // 8행 (월)
+                const row9 = rows[8]; // 9행 (세부 컬럼명)
+                rawDataRows = rows.slice(9); 
+                monthColumnMap = {}; 
+
+                let currentMonth = "";
+                let foundTargetCol = false;
+                
+                for (let i = 3; i < row8.length; i++) { 
+                    if (row8[i] && row8[i].trim() !== "") {
+                        currentMonth = row8[i].trim();
+                        if (!monthColumnMap[currentMonth]) monthColumnMap[currentMonth] = {};
+                    }
+                    if (currentMonth !== "" && row9[i]) {
+                        const colName = row9[i].trim();
+                        monthColumnMap[currentMonth][colName] = i; 
+                        if(colName === TARGET_COLS.amount) foundTargetCol = true;
+                    }
+                }
+
+                if (!foundTargetCol) {
+                     document.getElementById('loading').innerHTML = `<span style="color:red;">오류: 9행에서 '${TARGET_COLS.amount}' 컬럼을 찾지 못했습니다. 데이터 구조를 확인해주세요.</span>`;
+                     return;
+                }
+
+                // 월별 셀렉트 박스 채우기
+                const monthSelect = document.getElementById('monthSelect');
+                Object.keys(monthColumnMap).forEach(month => {
+                    const option = document.createElement('option');
+                    option.value = month;
+                    option.textContent = month;
+                    monthSelect.appendChild(option);
+                });
+
+                document.getElementById('loading').style.display = 'none';
+                document.getElementById('dataTable').style.display = 'table';
+                
+                renderTable(); // 표 그리기
+            }
+        });
+    }
+
+    // 표 렌더링 함수
+    function renderTable() {
+        const selectedMonth = document.getElementById('monthSelect').value;
+        const colIndices = monthColumnMap[selectedMonth];
+
+        if (!colIndices || colIndices[TARGET_COLS.amount] === undefined) {
+            alert(`선택한 월에 데이터가 없습니다.`); return;
+        }
+
+        const idxAmount = colIndices[TARGET_COLS.amount];
+        const idxCount = colIndices[TARGET_COLS.count];
+        const idxBuyers = colIndices[TARGET_COLS.buyers];
+
+        const groupedData = {};
+        let totalAmount = 0, totalCount = 0, totalBuyers = 0;
+
+        rawDataRows.forEach(row => {
+            if (!row || row.length < 3) return; 
+            const code = row[2] ? row[2].trim() : ""; // C열 기준 (항목명/시술코드)
+            if (code === "") return; 
+
+            const amount = Number((row[idxAmount] || '0').replace(/[^0-9.-]+/g, ""));
+            const count = Number((row[idxCount] || '0').replace(/[^0-9.-]+/g, ""));
+            const buyers = Number((row[idxBuyers] || '0').replace(/[^0-9.-]+/g, ""));
+
+            if (amount === 0 && count === 0) return;
+
+            if (!groupedData[code]) groupedData[code] = { amount: 0, count: 0, buyers: 0 };
+            
+            groupedData[code].amount += amount;
+            groupedData[code].count += count;
+            groupedData[code].buyers += buyers;
+
+            totalAmount += amount;
+            totalCount += count;
+            totalBuyers += buyers;
+        });
+
+        const sortedItems = Object.entries(groupedData)
+            .map(([code, stats]) => ({ code, ...stats }))
+            .sort((a, b) => b.amount - a.amount);
+
+        const tbody = document.getElementById('tableBody');
+        tbody.innerHTML = '';
+
+        sortedItems.forEach((item, index) => {
+            const ratio = totalAmount === 0 ? 0 : ((item.amount / totalAmount) * 100).toFixed(2);
+            const color = colors[index % colors.length];
+
+            const tr = document.createElement('tr');
+            tr.innerHTML = `
+                <td>
+                    <div class="product-cell">
+                        <span class="color-bar" style="background-color: ${color};"></span>
+                        ${item.code}
+                    </div>
+                </td>
+                <td class="number-cell">${formatNumber(item.amount)}</td>
+                <td class="number-cell">${formatNumber(item.count)}회</td>
+                <td class="number-cell">${formatNumber(item.buyers)}명</td>
+                <td class="ratio-cell">${ratio}%</td>
+            `;
+            tbody.appendChild(tr);
+        });
+
+        document.getElementById('tableFoot').innerHTML = `
+            <tr>
+                <td>총 합계</td>
+                <td>${formatNumber(totalAmount)}</td>
+                <td>${formatNumber(totalCount)}회</td>
+                <td>${formatNumber(totalBuyers)}명</td>
+                <td class="ratio-cell">100.00%</td>
+            </tr>
+        `;
+    }
+
+    // 뒤로 가기 (메뉴로 복귀)
+    function goBack() {
+        document.getElementById('data-page').classList.remove('active');
+        document.getElementById('selection-page').classList.add('active');
+    }
+</script>
+
+</body>
+</html>
